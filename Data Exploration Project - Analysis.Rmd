@@ -1,0 +1,66 @@
+---
+title: "Data Exploration Project - Analysis"
+author: "Paul Gano"
+date: '2022-05-10'
+output: html_document
+---
+
+# Loading Libraries and Data
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(fixest)
+library(scales)
+library(lubridate)
+```
+
+Hello and welcome to my analysis of the Scorecards release on Universities Google trends. The primary research question I will be tackling is "Among colleges that predominantly grant bachelor’s degrees, did the release of the Scorecard shift student interest to high-earnings colleges relative to low-earnings ones (as proxied by Google searches for keywords associated with those colleges)?" 
+
+Now that's a doozy of a question and required quite a bit of house cleaning before we got the right data set. I have already pre-cleaned this data to only include Colleges that primarily grant bachelor degrees, and most importantly defined "High-earning" as colleges with a median income greater than 65,000 dollars (50% above the mean of all colleges). How we will be determining student interest is the standardized index, which tells us how many standard deviations a keyword search is from it's average search index. The point of treatment is the scorecards release date which was on September 2015. We will start out by loading up our data and taking a look at the distribution of standard index over time.
+
+
+```{r}
+Regression_Data <- read_csv('Scorecard_Trends_Final.csv')
+
+Regression_Data <- Regression_Data %>% group_by(schname, keyword, Month) %>% mutate(LOCALE = as_factor(LOCALE))
+```
+# Let's Take a look at what we are dealing with
+
+```{r}
+Summary_Data <- Regression_Data %>% group_by(schname, Month, High_Earning, After_Score) %>% summarize(mean_std = mean(Stnd_index))
+```
+# Colleges Mean Index Over Time
+
+```{r}
+Summary_Data %>% filter(mean_std < 5) %>% ggplot(aes(x = Month, y = mean_std)) + geom_point(aes(color = High_Earning)) + geom_smooth(method = lm) + geom_vline(xintercept = as.numeric(as.Date("2015-09-01")), size = 1, color ="green")
+```
+
+There is a downward trend in the data over time, this might indicate a decreased interest in colleges over time, but that is no the  the variation does not change around as time goes on, meaning we don't have to worry about heteroskedasticity. It looks like there is plenty of variation across the months as college searches go up and down depending on the time of year. There doesn't seem too drastic a change after treatment, but that may be because our low_earning colleges are covering so much. Let's take a look at a graph without them.
+
+# High Earning Colleges Mean Index Over Time
+
+```{r}
+Summary_Data %>% filter(High_Earning == TRUE) %>% ggplot(aes(x = Month, y = mean_std)) + geom_point(color = "Blue") + geom_smooth(method = lm) + geom_vline(xintercept = as.numeric(as.Date("2015-09-01")), size = 1, color ="green")
+```
+
+Taking a look at only the high earning colleges, it seems to follow a similar downward trend. However, there are five points that stick out after the score_card release. It may be that those particular schools were the top of the score card in salary, getting increased traffic not nessecessarly out of want to apply, but curiousity about the college with the highest earning potential. But that's just extrapolation.
+
+# Running Some Models
+
+For this analysis I am going to be regression Standard Index on the interaction of Scorecards Release and High Earning Colleges.This will show me the the effect of the Scorecard and High Earning colleges on the standardized index. my initial model will be unrestricted to see the base regressions relationship without any controls. My next model will control for Locale with fixed effects. The reason I am controlling for locale is that I predict it will control multiple endogenous factors. My priamry assumption being that more rural colleges will have less overall devition in their keyword search compared to colleges located in developed urban/suburban areas.
+
+```{r}
+unrestricted <- Regression_Data %>% feols(Stnd_index ~ After_Score*High_Earning)
+restricted <- Regression_Data %>% feols(Stnd_index ~ After_Score*High_Earning | LOCALE)
+etable(unrestricted,restricted)
+```
+# Interpretation and Conclusion
+
+First impressions is that Locale has no major effect on the regression. This suggest that different levels of urbanization doesn't impact the overall search interest in a college which goes against my initial impression. 
+
+Now looking at the coefficients we can see that both High_earnings and After_Score have a negative coefficients. The only statistically significant one is After_score which we can interpret as after the score card release we saw a -0.1951 decrease in the standard deviations from the mean search index. High earning colleges also seem to have less standard deviation at -0.0045 but this isn't far enough away from the Null of 0 to be significant. What we are most interested in, however, is the interaction coefficient. After the score card release, high earning colleges saw an increase in 0.0246 in the standard deviations from the mean index. This number is both small and not statistically significant.
+
+This does not bode well for the scorecard. While there may have been a small increase in the overall standard index for High Earning colleges after it's release it had no major impact on searches for them. 
+
+In my personal interpretation, this may show that college score card is helping narrow the search volume students go through. Using the tools provided by the site, students can find much better fits for their academic goals and thus spend less time searching on major schools. The small increase after the scorecards release to High Earning colleges may also be attributable to the outlines present in the graph which I took as people being curious about what the highest earning colleges were. If we were to more narrowly define high-earning there may be an increase in the effect, but it's application to the real would be more limited.

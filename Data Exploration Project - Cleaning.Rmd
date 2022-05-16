@@ -1,0 +1,92 @@
+---
+title: "Data Exploration Project: Data Cleaning"
+author: "Paul Gano"
+date: '2022-04-24'
+output: html_document
+---
+# Loading Libraries
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(purrr)
+library(dplyr)
+library(lubridate)
+```
+
+# Loading in Datasets
+
+```{r Loading Trends ScoreCard and Ids}
+Google_Trends <- list.files(getwd(),pattern = "trends",full.names = TRUE)
+Google_Trends <- Google_Trends %>% map_df(read_csv)
+Scorecard <- read_csv('Most+Recent+Cohorts+(Scorecard+Elements).csv')
+Link_Names <- read_csv('id_name_link.csv')
+```
+# Reducing to One ID per School
+
+```{r Reducing to One ID per School}
+TLink_Names <- Link_Names %>% 
+  group_by(schname) %>% 
+  mutate(N = n()) %>% 
+  filter(N == 1) %>% 
+  select(-N)
+```
+
+# Joining Data, Filtering Predominantly Bachelor Degrees
+
+```{r Joining data}
+Google_Trends_Linked <- Google_Trends %>% inner_join(Link_Names, by = 'schname')
+Scorecard_Trends <- Google_Trends_Linked %>% 
+  rename(OPEID = opeid) %>% 
+  inner_join(Scorecard, by = 'OPEID')
+```
+
+```{r filtering to primarily bachelor}
+Scorecard_Trends <- Scorecard_Trends %>% filter(PREDDEG == 3)
+```
+
+# Adding Months and Weeks, Defining post treatment
+
+```{r Months and Weeks}
+string <- str_sub(Scorecard_Trends$monthorweek,1,10)
+
+Scorecard_Trends <- Scorecard_Trends %>% 
+  mutate(Week = ymd(string),Month = floor_date(Week, unit = 'month'), After_Score = as.factor(Week > ymd('2015-09-01')))
+```
+
+# Standardizing Index
+
+```{r Standardizing Index}
+Scorecard_Trends <- Scorecard_Trends %>% 
+  group_by(schname, keyword) %>% 
+  mutate(Stnd_index = scale(index)) %>% 
+  drop_na()
+Scorecard_Trends %>% group_by(schname, keyword, Month) %>% summarize(Stnd_index)
+```
+
+# Defining High-Earnings
+
+```{r Defining High-Earnings}
+Scorecard_Trends$`md_earn_wne_p10-REPORTED-EARNINGS` <- as.numeric(Scorecard_Trends$`md_earn_wne_p10-REPORTED-EARNINGS`)
+Scorecard_Trends <- Scorecard_Trends %>% 
+  drop_na(`md_earn_wne_p10-REPORTED-EARNINGS`) %>% 
+  ungroup() %>% 
+  mutate(High_Earning = as.factor(`md_earn_wne_p10-REPORTED-EARNINGS` > mean(`md_earn_wne_p10-REPORTED-EARNINGS`) + mean(`md_earn_wne_p10-REPORTED-EARNINGS`)*.5))
+```
+I chose to define high earning as 50% more than the mean earnings, I did not want to define high earning as just exclusively above average. That would mean even a school with median earnings $10 above the average would be defined as "high-earning". The choice of 50% makes the breaking point greater than 65k which I think is a reasonable definition of high earning.
+
+# Choosing Final Columns
+
+```{r Choosing Final Columns}
+Scorecard_Trends_Final <- Scorecard_Trends %>% 
+  select(c(schname, keyword, LOCALE, `md_earn_wne_p10-REPORTED-EARNINGS`, Week, Month, After_Score, Stnd_index, High_Earning))
+vtable::vtable(Scorecard_Trends_Final)
+```
+
+# Saving Down Final Data
+
+```{r Saving Down Final Data}
+write.csv(Scorecard_Trends_Final, "Scorecard_Trends_Final.csv", row.name = TRUE)
+```
+
+
